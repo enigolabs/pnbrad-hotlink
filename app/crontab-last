@@ -1,0 +1,3 @@
+ 0 8 * * * cd /data/html/system && php82 cron_reminder.php >/dev/null
+ * * * * * cd /data/html/system && php82 cron.php >/dev/null
+ 

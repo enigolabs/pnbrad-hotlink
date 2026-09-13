@@ -1,0 +1,50 @@
+# Official compose snippet from https://hub.docker.com/r/agstr/pnb (README)
+# Extended with bind-mounts for Paystack + captive portal customizations.
+# Source extracted from container to /workspace/pnbrad/app
+# nginx serves /data/html (not /app/html).
+services:
+  pnbrad:
+    image: agstr/pnb:latest
+    container_name: PNBRAD
+    ports:
+      - 1812-1813:1812-1813/udp
+      - 9980:80
+      - 9306:3306
+      - 922:22
+    restart: unless-stopped
+    logging:
+        driver: "json-file"
+        options: 
+            max-size: "1m"
+            max-file: "3"
+    privileged: true
+    environment:
+        #database config
+          - DB_DATABASE=pnbrad
+          - DB_USERNAME=pnb
+          - DB_PASSWORD=0NMp2kWNS0kPlLz3HG3RjBGpS6Jwq23O
+         
+        #Set timezone
+          - TIME_ZONE=Asia/Jakarta
+          
+        #ssh root password
+          - ROOT_PASSWORD=cgEsxKh0zBNVK3jegElnPDIT190Iwy6M
+          
+        #freeradius config
+          - RADIUS_SECRET=ZIvIhrPVeHvcAMgdXwDh9BEscRskcW5
+          - RADIUS_CLIENT=0.0.0.0
+          - RADIUS_LOG_AUTH=no
+    volumes:
+      # Persist MariaDB + webroot (image uses /data volume; nginx root is /data/html)
+      - ./data/mysql:/data/mysql
+      - ./data/html:/data/html
+      # Live overlays from editable extract (win over data/html copies)
+      - ./app/system/paymentgateway/paystack.php:/data/html/system/paymentgateway/paystack.php:ro
+      - ./app/system/paymentgateway/ui/paystack.tpl:/data/html/system/paymentgateway/ui/paystack.tpl:ro
+      - ./app/system/controllers/portal.php:/data/html/system/controllers/portal.php:ro
+      - ./app/ui/ui/customer/portal.tpl:/data/html/ui/ui/customer/portal.tpl:ro
+      - ./app/ui/ui/customer/portal-reconnect.tpl:/data/html/ui/ui/customer/portal-reconnect.tpl:ro
+      - ./app/system/controllers/login.php:/data/html/system/controllers/login.php:ro
+      - ./app/system/controllers/order.php:/data/html/system/controllers/order.php:ro
+      - ./app/system/autoload/PortalMac.php:/data/html/system/autoload/PortalMac.php:ro
+      - ./app/index.php:/data/html/index.php:ro

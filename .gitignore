@@ -1,0 +1,22 @@
+# Secrets & local runtime
+CREDENTIALS.md
+.env
+.env.*
+!.env.example
+data/
+*.pem
+*.key
+
+# Bulky image copies not needed for customization deploy
+app/admin/
+app/gowa/
+app/system/vendor/
+app/system/cache/
+app/ui/compiled/
+
+# Archives / junk
+*.tar.gz
+*.zip
+!mikrotik-hotspot/
+pnbrad-*.zip
+pnbrad-*.tar.gz

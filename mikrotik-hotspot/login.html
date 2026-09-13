@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>HotLink — Get online</title>
+    <!--
+      HotLink / PHPNuxBill MikroTik hotspot login page.
+      No username or password form. Redirects to the package portal
+      and passes MAC + IP so returning users auto-connect.
+
+      TODO: set HOTLINK_URL to your PHPNuxBill public URL
+            (example: http://192.168.88.2:9980  or  https://hotlink.example.com)
+      Also add that host to Hotspot → Walled Garden.
+    -->
+    <style>
+        :root { --teal: #0d7377; --ink: #123; --muted: #5a6a75; }
+        html, body { height: 100%; margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: #e8f4f4; color: var(--ink); }
+        .wrap { min-height: 100%; display: flex; align-items: center; justify-content: center; padding: 24px; }
+        .card { max-width: 420px; width: 100%; background: #fff; border-radius: 16px; padding: 28px 24px; box-shadow: 0 8px 32px rgba(13,115,119,.12); text-align: center; }
+        h1 { margin: 0 0 8px; font-size: 1.5rem; color: var(--teal); }
+        p { margin: 0 0 16px; color: var(--muted); line-height: 1.45; }
+        .btn { display: inline-block; background: var(--teal); color: #fff; text-decoration: none; padding: 12px 22px; border-radius: 10px; font-weight: 600; }
+        .err { background: #fdecea; color: #9b1c1c; padding: 10px 12px; border-radius: 8px; margin-bottom: 16px; font-size: .95rem; }
+        small { color: #8a97a0; }
+    </style>
+</head>
+<body>
+$(if chap-id)
+    <form name="sendin" action="$(link-login-only)" method="post" style="display:none">
+        <input type="hidden" name="username">
+        <input type="hidden" name="password">
+        <input type="hidden" name="dst" value="$(link-orig)">
+        <input type="hidden" name="popup" value="true">
+    </form>
+    <script src="/md5.js"></script>
+$(endif)
+
+<div class="wrap">
+    <div class="card">
+        <h1>HotLink</h1>
+        <p>Your phone is your login. Opening packages…</p>
+$(if error)
+        <div class="err">$(error)</div>
+$(endif)
+        <p>
+            <a id="portal" class="btn" href="#">Continue</a>
+        </p>
+        <small>MAC $(mac) &middot; $(ip)</small>
+    </div>
+</div>
+
+<script>
+(function () {
+    // TODO: change this to your PHPNuxBill / HotLink server
+    var HOTLINK_URL = "http://CHANGE-ME:9980";
+    // Router name as in PHPNuxBill Admin → Networks → Routers.
+    // Default: MikroTik System → Identity. Override if they differ.
+    var ROUTER_NAME = "$(identity)";
+
+    var q = [
+        "nux-mac=$(mac-esc)",
+        "nux-ip=$(ip)",
+        "nux-hostname=$(hostname)",
+        "nux-router=" + encodeURIComponent(ROUTER_NAME),
+        "mac=$(mac-esc)"
+    ];
+$(if chap-id)
+    q.push("nux-key=$(chap-id)");
+$(endif)
+    var dest = HOTLINK_URL.replace(/\/$/, "") + "/?_route=portal&" + q.join("&");
+    var a = document.getElementById("portal");
+    if (a) a.setAttribute("href", dest);
+    window.location.replace(dest);
+})();
+</script>
+</body>
+</html>
