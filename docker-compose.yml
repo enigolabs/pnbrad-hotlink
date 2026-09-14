@@ -1,5 +1,5 @@
 # Official compose snippet from https://hub.docker.com/r/agstr/pnb (README)
-# Extended with bind-mounts for Paystack + captive portal customizations.
+# Extended with bind-mounts for Paystack + IntaSend + captive portal customizations.
 # Source extracted from container to /workspace/pnbrad/app
 # nginx serves /data/html (not /app/html).
 services:
@@ -41,9 +41,12 @@ services:
       # Live overlays from editable extract (win over data/html copies)
       - ./app/system/paymentgateway/paystack.php:/data/html/system/paymentgateway/paystack.php:ro
       - ./app/system/paymentgateway/ui/paystack.tpl:/data/html/system/paymentgateway/ui/paystack.tpl:ro
+      - ./app/system/paymentgateway/intasend.php:/data/html/system/paymentgateway/intasend.php:ro
+      - ./app/system/paymentgateway/ui/intasend.tpl:/data/html/system/paymentgateway/ui/intasend.tpl:ro
       - ./app/system/controllers/portal.php:/data/html/system/controllers/portal.php:ro
       - ./app/ui/ui/customer/portal.tpl:/data/html/ui/ui/customer/portal.tpl:ro
       - ./app/ui/ui/customer/portal-reconnect.tpl:/data/html/ui/ui/customer/portal-reconnect.tpl:ro
+      - ./app/ui/ui/customer/portal-waiting.tpl:/data/html/ui/ui/customer/portal-waiting.tpl:ro
       - ./app/system/controllers/login.php:/data/html/system/controllers/login.php:ro
       - ./app/system/controllers/order.php:/data/html/system/controllers/order.php:ro
       - ./app/system/autoload/PortalMac.php:/data/html/system/autoload/PortalMac.php:ro

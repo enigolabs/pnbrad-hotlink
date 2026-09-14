@@ -1,10 +1,9 @@
 <?php
 
 /**
- * Hotspot captive portal — packages first, phone-only identity, Paystack checkout.
+ * Hotspot captive portal — eNiGoLabs branding.
+ * Flow: packages → phone → IntaSend STK (prefer) / Paystack → waiting poll → activate + connect → Google.
  * Returning devices: MAC→customer (tbl_portal_macs) with active package auto-pass to home.
- * End-users never see a traditional username/password login form here.
- * Admin/staff login remains at /admin (unchanged).
  *
  * Phone normalization (documented assumption):
  * - Strip spaces, dashes, parentheses, dots
@@ -13,14 +12,11 @@
  * - If Settings → country_code_phone is set AND the number has no + / no 00
  *   AND does not already start with that country code digits, prepend country_code_phone
  * - Username / password / lookup key = normalized phone (as stored)
- * - Email = {digits-only phone}@gmail.com (no +, spaces, or other punctuation)
+ * - Email = {digits-only phone}@gmail.com
  */
 
 $action = isset($routes['1']) ? $routes['1'] : 'list';
 
-/**
- * Normalize phone for account username / Paystack customer.
- */
 function portal_email_from_phone($phone)
 {
     $digits = preg_replace('/\D/', '', (string)$phone);
@@ -35,7 +31,6 @@ function portal_normalize_phone($raw)
     if ($phone === '' || $phone === null) {
         return '';
     }
-    // 00intl → +intl
     if (strpos($phone, '00') === 0) {
         $phone = '+' . substr($phone, 2);
     }
@@ -49,7 +44,6 @@ function portal_normalize_phone($raw)
     }
     $cc = isset($config['country_code_phone']) ? preg_replace('/\D/', '', $config['country_code_phone']) : '';
     if ($cc !== '' && strpos($digits, $cc) !== 0) {
-        // local digits → prepend configured country code (without forcing + lock-in)
         $digits = $cc . ltrim($digits, '0');
     }
     return $digits;
@@ -83,7 +77,6 @@ function portal_load_hotspot_plans()
     if ($name === 'radius') {
         $q->where('is_radius', '1');
     } elseif ($name !== '') {
-        // Plans assigned to this router name, plus RADIUS plans
         $q->where_raw('(routers = ? OR is_radius = 1)', [$name]);
     }
     return $q->order_by_asc('price')->find_many();
@@ -96,7 +89,6 @@ function portal_find_or_create_customer($phone)
         if ($existing['status'] == 'Banned') {
             return [null, Lang::T('This account status') . ' : ' . Lang::T($existing['status'])];
         }
-        // Keep password = phone for reconnect simplicity
         $want_email = portal_email_from_phone($phone);
         $dirty = false;
         if ($existing['password'] !== $phone) {
@@ -176,9 +168,65 @@ function portal_has_active_package($customer_id)
     return (bool)$tur;
 }
 
+/**
+ * Prefer IntaSend when enabled+keys ready; else Paystack; else null + error message.
+ */
+function portal_select_gateway()
+{
+    global $config, $PAYMENTGATEWAY_PATH;
+    $actives = array_filter(array_map('trim', explode(',', isset($config['payment_gateway']) ? $config['payment_gateway'] : '')));
+
+    $intasend_file = $PAYMENTGATEWAY_PATH . DIRECTORY_SEPARATOR . 'intasend.php';
+    $paystack_file = $PAYMENTGATEWAY_PATH . DIRECTORY_SEPARATOR . 'paystack.php';
+    $intasend_err = null;
+    $paystack_err = null;
+
+    if (in_array('intasend', $actives, true) && file_exists($intasend_file)) {
+        include_once $intasend_file;
+        if (function_exists('intasend_keys_ready') && intasend_keys_ready()) {
+            return ['intasend', null];
+        }
+        $intasend_err = 'IntaSend keys are placeholders. Ask admin to set real test/live keys under Payment Gateway → IntaSend.';
+    }
+
+    if (in_array('paystack', $actives, true) && file_exists($paystack_file)) {
+        include_once $paystack_file;
+        $sk = isset($config['paystack_secret_key']) ? (string)$config['paystack_secret_key'] : '';
+        $ok = ($sk !== '' && stripos($sk, 'REPLACE') === false && stripos($sk, 'xxxxxxxx') === false && substr($sk, 0, 3) === 'sk_');
+        if ($ok) {
+            return ['paystack', null];
+        }
+        $paystack_err = 'Paystack keys are placeholders. Ask admin to set real test/live keys under Payment Gateway → Paystack.';
+    }
+
+    if ($intasend_err) {
+        return [null, $intasend_err];
+    }
+    if ($paystack_err) {
+        return [null, $paystack_err];
+    }
+    return [null, 'No payment gateway enabled. Ask admin to enable IntaSend (preferred) or Paystack under Payment Gateway.'];
+}
+
+function portal_after_paid_redirect($customer)
+{
+    PortalMac::remember($customer['id']);
+    portal_try_device_connect($customer);
+    header('Location: https://www.google.com');
+    exit();
+}
+
+function portal_json_exit($data, $code = 200)
+{
+    http_response_code($code);
+    header('Content-Type: application/json');
+    header('Cache-Control: no-store');
+    echo json_encode($data);
+    exit();
+}
+
 switch ($action) {
     case 'buy':
-        // POST: plan_id, phone, router optional
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             r2(U . 'portal', 'w', Lang::T('Invalid request'));
         }
@@ -204,20 +252,19 @@ switch ($action) {
             r2(U . 'portal', 'e', Lang::T('Plan Not found'));
         }
 
-        // Gate Paystack before creating accounts so placeholder keys fail instantly
         global $config, $PAYMENTGATEWAY_PATH;
-        $gateway = 'paystack';
-        $actives = array_filter(array_map('trim', explode(',', isset($config['payment_gateway']) ? $config['payment_gateway'] : '')));
-        if (!in_array($gateway, $actives, true) || !file_exists($PAYMENTGATEWAY_PATH . DIRECTORY_SEPARATOR . $gateway . '.php')) {
-            r2(U . 'portal', 'e', 'Paystack is not enabled. Ask admin to configure Payment Gateway → Paystack.');
+        list($gateway, $gw_err) = portal_select_gateway();
+        if (!$gateway) {
+            r2(U . 'portal', 'w', $gw_err ? $gw_err : 'Payment gateway not ready');
         }
-        $sk = isset($config['paystack_secret_key']) ? (string)$config['paystack_secret_key'] : '';
-        $is_placeholder = ($sk === '' || stripos($sk, 'REPLACE') !== false || stripos($sk, 'xxxxxxxx') !== false || substr($sk, 0, 3) !== 'sk_');
-        if ($is_placeholder) {
-            r2(U . 'portal', 'w', 'Paystack keys are placeholders. Ask admin to set real test/live keys under Payment Gateway → Paystack.');
+
+        if ($gateway === 'intasend') {
+            include_once $PAYMENTGATEWAY_PATH . DIRECTORY_SEPARATOR . 'intasend.php';
+            intasend_validate_config();
+        } else {
+            include_once $PAYMENTGATEWAY_PATH . DIRECTORY_SEPARATOR . 'paystack.php';
+            paystack_validate_config();
         }
-        include_once $PAYMENTGATEWAY_PATH . DIRECTORY_SEPARATOR . $gateway . '.php';
-        paystack_validate_config();
 
         list($customer, $err) = portal_find_or_create_customer($phone);
         if ($err) {
@@ -235,13 +282,11 @@ switch ($action) {
             $router_id = $router ? $router['id'] : 0;
         }
 
-        // Cancel previous unpaid without payment URL clutter; reuse unpaid same gateway if any
         $existing = ORM::for_table('tbl_payment_gateway')
             ->where('username', $user['username'])
             ->where('status', 1)
             ->find_one();
-        if ($existing && !empty($existing['pg_url_payment'])) {
-            // Mark old unpaid as cancelled so user can buy again
+        if ($existing && (!empty($existing['pg_url_payment']) || !empty($existing['gateway_trx_id']))) {
             $existing->status = 4;
             $existing->save();
         }
@@ -272,65 +317,185 @@ switch ($action) {
         $_SESSION['portal_checkout'] = 1;
         $_SESSION['portal_trx_id'] = $d->id();
 
+        if ($gateway === 'intasend') {
+            // STK in "background" — do not bounce user to a blank Paystack-style redirect
+            $ok = intasend_create_transaction($d, $user, true);
+            if (!$ok) {
+                r2(U . 'portal', 'e', Lang::T('Failed to create transaction.') . ' IntaSend');
+            }
+            // If checkout fallback stored a URL, waiting page can offer/open it
+            r2(U . 'portal/waiting/' . $d->id());
+        }
+
+        // Paystack: create checkout then send user to Paystack; return URL → waiting
+        // Temporarily override callback by setting portal flag; paystack uses portal/paid —
+        // we route paid → waiting. Also set session so waiting works after return.
         paystack_create_transaction($d, $user);
+        // paystack_create_transaction redirects to authorization_url and exits
         break;
 
-    case 'paid':
-        // Return from Paystack — verify then redirect to Google
-        global $PAYMENTGATEWAY_PATH, $config;
-        $trx_id = isset($routes['2']) ? (int)$routes['2'] : 0;
-        $ref = _get('reference'); // Paystack appends ?reference=
-
-        $user_id = User::getID();
-        if (!$user_id) {
-            // Try recover from trx
-            if ($trx_id > 0) {
-                $trx = ORM::for_table('tbl_payment_gateway')->find_one($trx_id);
-                if ($trx) {
-                    $c = ORM::for_table('tbl_customers')->find_one($trx['user_id']);
-                    if ($c) {
-                        portal_login_customer($c);
-                        $user_id = $c['id'];
-                    }
-                }
-            }
+    case 'waiting':
+        PortalMac::captureSession();
+        $trx_id = isset($routes['2']) ? (int)$routes['2'] : (int)_get('trx');
+        if ($trx_id <= 0 && !empty($_SESSION['portal_trx_id'])) {
+            $trx_id = (int)$_SESSION['portal_trx_id'];
         }
-        if (!$user_id) {
-            r2(U . 'portal', 'e', Lang::T('Session expired. Use Reconnect with your phone number.'));
+        if ($trx_id <= 0) {
+            r2(U . 'portal', 'w', Lang::T('Payment not found'));
         }
-        $user = User::_info($user_id);
-
-        $trx = null;
-        if ($trx_id > 0) {
-            $trx = ORM::for_table('tbl_payment_gateway')
-                ->where('user_id', $user_id)
-                ->find_one($trx_id);
-        }
-        if (!$trx && $ref) {
-            $trx = ORM::for_table('tbl_payment_gateway')
-                ->where('gateway_trx_id', $ref)
-                ->find_one();
-        }
+        $trx = ORM::for_table('tbl_payment_gateway')->find_one($trx_id);
         if (!$trx) {
             r2(U . 'portal', 'e', Lang::T('Payment not found'));
         }
+        // Recover login from trx if session lost (e.g. Paystack return)
+        $user_id = User::getID();
+        if (!$user_id) {
+            $c = ORM::for_table('tbl_customers')->find_one($trx['user_id']);
+            if ($c) {
+                portal_login_customer($c);
+            }
+        }
+        $_SESSION['portal_trx_id'] = $trx_id;
 
-        include_once $PAYMENTGATEWAY_PATH . DIRECTORY_SEPARATOR . 'paystack.php';
-        paystack_validate_config();
-        $ok = paystack_get_status($trx, $user, true);
-
-        if ($ok) {
-            // refresh trx
-            $trx = ORM::for_table('tbl_payment_gateway')->find_one($trx['id']);
-            $customer = ORM::for_table('tbl_customers')->find_one($user_id);
-            PortalMac::remember($customer['id']);
-            portal_try_device_connect($customer);
-            header('Location: https://www.google.com');
-            exit();
+        // Paystack return may include ?reference= — stash on trx if missing
+        $ref = _get('reference');
+        if ($ref && empty($trx['gateway_trx_id'])) {
+            $trx->gateway_trx_id = $ref;
+            $trx->save();
+        } elseif ($ref && $trx['gateway_trx_id'] !== $ref) {
+            // Keep existing gateway_trx_id (Paystack sets it at init)
         }
 
-        // Still unpaid / pending
-        r2(U . 'portal', 'w', Lang::T('Transaction still unpaid.'));
+        $checkout_url = !empty($trx['pg_url_payment']) ? $trx['pg_url_payment'] : '';
+        $need_checkout = false;
+        if ($checkout_url !== '' && (string)$trx['status'] === '1') {
+            $req = json_decode($trx['pg_request'], true);
+            $method = is_array($req) && !empty($req['method']) ? $req['method'] : '';
+            // Auto-open IntaSend checkout fallback (not STK). Paystack users already visited checkout.
+            if ($method === 'CHECKOUT' && strtolower((string)$trx['gateway']) === 'intasend') {
+                $need_checkout = true;
+            }
+        }
+
+        $csrf_token = Csrf::generateAndStoreToken();
+        $ui->assign('csrf_token', $csrf_token);
+        $ui->assign('trx_id', $trx_id);
+        $ui->assign('plan_name', $trx['plan_name']);
+        $ui->assign('gateway', $trx['gateway']);
+        $ui->assign('checkout_url', $checkout_url);
+        $ui->assign('need_checkout', $need_checkout);
+        $ui->assign('pay_status_url', '?_route=portal/pay-status&trx=' . $trx_id);
+        $ui->assign('_title', 'Please wait');
+        $ui->display('customer/portal-waiting.tpl');
+        break;
+
+    case 'pay-status':
+        // JSON poll endpoint
+        global $PAYMENTGATEWAY_PATH, $config;
+        $trx_id = (int)_get('trx');
+        if ($trx_id <= 0) {
+            $trx_id = isset($routes['2']) ? (int)$routes['2'] : 0;
+        }
+        if ($trx_id <= 0) {
+            portal_json_exit(['status' => 'failed', 'message' => 'missing trx'], 400);
+        }
+        $trx = ORM::for_table('tbl_payment_gateway')->find_one($trx_id);
+        if (!$trx) {
+            portal_json_exit(['status' => 'failed', 'message' => 'not found'], 404);
+        }
+
+        // Timeout: older than 15 minutes unpaid → failed
+        $created = strtotime($trx['created_date']);
+        if ((string)$trx['status'] === '1' && $created && (time() - $created) > 900) {
+            portal_json_exit([
+                'status' => 'failed',
+                'message' => 'timeout',
+                'redirect' => U . 'portal',
+            ]);
+        }
+
+        if ((string)$trx['status'] === '2') {
+            $customer = ORM::for_table('tbl_customers')->find_one($trx['user_id']);
+            if ($customer) {
+                portal_login_customer($customer);
+                PortalMac::remember($customer['id']);
+                portal_try_device_connect($customer);
+            }
+            portal_json_exit([
+                'status' => 'paid',
+                'redirect' => 'https://www.google.com',
+            ]);
+        }
+        if (in_array((string)$trx['status'], ['3', '4'], true)) {
+            portal_json_exit([
+                'status' => 'failed',
+                'redirect' => U . 'portal',
+            ]);
+        }
+
+        // Still pending — try live verify
+        $user = null;
+        $c = ORM::for_table('tbl_customers')->find_one($trx['user_id']);
+        if ($c) {
+            portal_login_customer($c);
+            $user = User::_info($c['id']);
+        }
+        if (!$user) {
+            portal_json_exit(['status' => 'pending', 'message' => 'Checking…']);
+        }
+
+        $gw = strtolower((string)$trx['gateway']);
+        $ok = false;
+        if ($gw === 'intasend' && file_exists($PAYMENTGATEWAY_PATH . DIRECTORY_SEPARATOR . 'intasend.php')) {
+            include_once $PAYMENTGATEWAY_PATH . DIRECTORY_SEPARATOR . 'intasend.php';
+            $ok = intasend_get_status($trx, $user, true);
+        } elseif ($gw === 'paystack' && file_exists($PAYMENTGATEWAY_PATH . DIRECTORY_SEPARATOR . 'paystack.php')) {
+            include_once $PAYMENTGATEWAY_PATH . DIRECTORY_SEPARATOR . 'paystack.php';
+            $ok = paystack_get_status($trx, $user, true);
+        }
+
+        // Reload trx after verify
+        $trx = ORM::for_table('tbl_payment_gateway')->find_one($trx_id);
+        if ($ok || (string)$trx['status'] === '2') {
+            PortalMac::remember($c['id']);
+            portal_try_device_connect($c);
+            portal_json_exit([
+                'status' => 'paid',
+                'redirect' => 'https://www.google.com',
+            ]);
+        }
+        if (in_array((string)$trx['status'], ['3', '4'], true)) {
+            portal_json_exit([
+                'status' => 'failed',
+                'redirect' => U . 'portal',
+            ]);
+        }
+        portal_json_exit(['status' => 'pending', 'message' => 'Checking…']);
+        break;
+
+    case 'paid':
+        // Legacy / Paystack return — send to waiting page (poll verifies)
+        $trx_id = isset($routes['2']) ? (int)$routes['2'] : 0;
+        $ref = _get('reference');
+        if ($trx_id <= 0 && $ref) {
+            $t = ORM::for_table('tbl_payment_gateway')->where('gateway_trx_id', $ref)->find_one();
+            if ($t) {
+                $trx_id = (int)$t['id'];
+            }
+        }
+        if ($trx_id <= 0 && !empty($_SESSION['portal_trx_id'])) {
+            $trx_id = (int)$_SESSION['portal_trx_id'];
+        }
+        if ($trx_id <= 0) {
+            r2(U . 'portal', 'e', Lang::T('Payment not found'));
+        }
+        // Preserve Paystack reference query for waiting handler
+        $q = $ref ? ('?reference=' . urlencode($ref)) : '';
+        // r2 builds route — append reference via session
+        if ($ref) {
+            $_SESSION['portal_pay_ref'] = $ref;
+        }
+        r2(U . 'portal/waiting/' . $trx_id);
         break;
 
     case 'reconnect':
@@ -345,7 +510,6 @@ switch ($action) {
             }
             $customer = ORM::for_table('tbl_customers')->where('username', $phone)->find_one();
             if (!$customer) {
-                // also try phonenumber match
                 $customer = ORM::for_table('tbl_customers')->where('phonenumber', $phone)->find_one();
             }
             if (!$customer) {
@@ -370,22 +534,18 @@ switch ($action) {
         $ui->display('customer/portal-reconnect.tpl');
         break;
 
-
-
     case 'list':
     default:
-        // Returning hotspot client: known MAC + active package → login, connect, status page
         PortalMac::captureSession();
         if (PortalMac::tryAutopass()) {
             break;
         }
-        // Unknown MAC or no active package: show packages + Reconnect as before
         $csrf_token = Csrf::generateAndStoreToken();
         $plans = portal_load_hotspot_plans();
         $ui->assign('csrf_token', $csrf_token);
         $ui->assign('plans', $plans);
         $ui->assign('country_code_phone', isset($config['country_code_phone']) ? $config['country_code_phone'] : '');
-        $ui->assign('_title', Lang::T('Hotspot Packages'));
+        $ui->assign('_title', 'eNiGoLabs');
         run_hook('customer_view_portal'); #HOOK
         $ui->display('customer/portal.tpl');
         break;

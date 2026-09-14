@@ -108,7 +108,7 @@ function paystack_create_transaction($trx, $user)
     }
 
     $callback = $is_portal
-        ? (U . 'portal/paid/' . $trx['id'])
+        ? (U . 'portal/waiting/' . $trx['id'])
         : (U . 'order/view/' . $trx['id'] . '/check');
 
     $payload = [

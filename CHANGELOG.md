@@ -103,3 +103,56 @@ CREATE TABLE IF NOT EXISTS tbl_portal_macs (
 
 ## 2026-09-13 nux-router by name
 - Portal and order accept `nux-router` as router **name** (or numeric id). MikroTik `login.html` sends `$(identity)`.
+
+## 2026-09-14 — eNiGoLabs branding + IntaSend + waiting page
+
+### Branding
+- Company: **eNiGoLabs** (`CompanyName` in `tbl_appconfig`)
+- Theme line: **fast secure networks**
+- Portal UI: deep navy/black + electric cyan/teal, mobile-first cards (portal / reconnect / waiting)
+
+### IntaSend gateway (parallel to Paystack)
+| Path | Why |
+|------|-----|
+| `app/system/paymentgateway/intasend.php` | STK (`MPESA_STK_PUSH`), checkout fallback, status poll by `invoice_id`, webhook challenge validation |
+| `app/system/paymentgateway/ui/intasend.tpl` | Admin: publishable key, secret key, webhook challenge, test/live mode, currency (KES default) |
+
+- Webhook: `/?_route=callback/intasend` — validates payload `challenge` against `intasend_webhook_secret`
+- STK API: `POST {sandbox|payment}.intasend.com/api/v1/payment/mpesa-stk-push/` with `public_key` in body + Bearer secret when set
+- Status: `POST …/payment/status/` with `{ public_key, invoice_id }`
+- States: `PENDING` / `PROCESSING` / `COMPLETE` / `FAILED` (activate only on `COMPLETE`)
+
+### Portal buy preference
+1. If **IntaSend** enabled **and** keys ready → IntaSend (STK preferred for phone UX)
+2. Else if **Paystack** enabled **and** keys ready → Paystack
+3. Else clear placeholder / not-configured warning
+
+### Waiting + auto-connect flow
+1. Package + phone submit → create/find customer → create gateway trx
+2. Initiate IntaSend STK (no blank redirect); Paystack still opens checkout then returns here
+3. Browser → `/?_route=portal/waiting/{trxId}`
+4. Poll JSON every ~2.5s: `/?_route=portal/pay-status&trx={id}` → `{status: pending|paid|failed, redirect?}`
+5. On **paid**: activate (if needed), `connect_customer`, `PortalMac::remember`, redirect **https://www.google.com**
+6. On **failed/timeout** (~15 min): friendly retry + back to packages
+
+### Files created / changed
+| Path | Why |
+|------|-----|
+| `app/system/paymentgateway/intasend.php` | New gateway |
+| `app/system/paymentgateway/ui/intasend.tpl` | Admin UI |
+| `app/system/controllers/portal.php` | Gateway prefer + waiting + pay-status |
+| `app/ui/ui/customer/portal.tpl` | Branded package grid |
+| `app/ui/ui/customer/portal-reconnect.tpl` | Branded reconnect |
+| `app/ui/ui/customer/portal-waiting.tpl` | Please-wait + poller |
+| `app/system/paymentgateway/paystack.php` | Portal callback → `portal/waiting/{id}` |
+| `docker-compose.yml` | Mounts for intasend + waiting tpl |
+| `CHANGELOG.md` / `MANUAL.md` / `SETUP-AND-WORKFLOW.md` | Docs |
+
+### Keys still needed from V
+- IntaSend: `ISPubKey_…`, `ISSecretKey_…`, webhook challenge string (test or live)
+- Paystack (optional fallback): `pk_…` / `sk_…`
+
+### How to enable IntaSend
+1. Admin → Payment Gateway → tick **intasend** (keep paystack if desired) → Save
+2. Admin → Payment Gateway → **IntaSend** → fill keys / challenge / mode / currency → Save
+3. IntaSend Dashboard → Webhooks → URL `http://<host>/?_route=callback/intasend` + same challenge

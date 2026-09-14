@@ -3,7 +3,8 @@
 **Stack:** `agstr/pnb:latest` (Compose service `pnbrad`, container `PNBRAD`)  
 **Local project:** `/workspace/pnbrad`  
 **Web UI:** http://localhost:9980  
-**Date of customizations:** 2026-09-13
+**Brand:** eNiGoLabs — *fast secure networks*
+**Date of customizations:** 2026-09-14 (IntaSend + waiting UI); prior portal/Paystack 2026-09-13
 
 This manual covers how the local stack is set up, how the new hotspot captive portal and Paystack flow work, and what was changed versus the stock Hub image.
 
@@ -47,6 +48,8 @@ Secrets for DB / RADIUS / container root are in **`/workspace/pnbrad/CREDENTIALS
 |-----|---------|
 | http://localhost:9980/?_route=portal | Hotspot captive portal (packages); MAC auto-pass if known |
 | http://localhost:9980/?_route=portal/reconnect | Phone-only reconnect |
+| http://localhost:9980/?_route=portal/waiting/{id} | Please-wait / payment confirm |
+| http://localhost:9980/?_route=portal/pay-status&trx={id} | JSON poll `{status,redirect?}` |
 | http://localhost:9980/?_route=login | Redirects to portal; MAC auto-pass if known |
 | http://localhost:9980/admin/ or `/?_route=admin` | Staff / admin login (unchanged) |
 | `/?_route=portal&nux-mac=…&nux-ip=…` | Simulate MikroTik captive redirect |
@@ -66,8 +69,9 @@ Hotspot customers **never see a traditional username/password login page**.
    - **Username** = normalized phone  
    - **Password** = same phone  
    - **Email** = `{digits-only phone}@gmail.com` (no `+`)
-5. User is redirected **straight to Paystack** to pay for that plan.
-6. After **verified** payment, the plan is activated and the browser is redirected to **https://www.google.com**.
+5. Payment starts in the background (**IntaSend M-Pesa STK** preferred when enabled; otherwise Paystack checkout).
+6. Browser opens the branded **Please wait** page (`/?_route=portal/waiting/{trx}`) which polls payment status.
+7. After **verified** success: plan activated, MAC saved, `connect_customer` when possible, then **https://www.google.com**.
 
 ### 3.2 Reconnect
 
@@ -136,12 +140,34 @@ Documented in `PHONE_NORMALIZATION.md`. Summary:
    On localhost, Paystack cannot reach your machine unless you use a tunnel (ngrok, Cloudflare Tunnel, etc.). **Redirect/verify-by-reference still works** without a public webhook for many test flows; webhook is recommended for production reliability.
 4. Until real keys replace the placeholders (`pk_test_REPLACE_ME` / `sk_test_REPLACE_ME`), the portal fails fast with a clear warning instead of hanging on Paystack HTTP.
 
-### 4.2 Hotspot plans
+### 4.2 IntaSend (preferred for M-Pesa STK)
+
+1. Open **Admin → Payment Gateway** and enable **intasend** (you may keep **paystack** enabled as fallback).
+2. Open **Admin → Payment Gateway → IntaSend**.
+3. Enter:
+   - Publishable key (`ISPubKey_test_…` or `ISPubKey_live_…`)
+   - Secret key (`ISSecretKey_test_…` or `ISSecretKey_live_…`)
+   - Webhook challenge (same string as IntaSend Dashboard → Webhooks)
+   - Mode: test (sandbox.intasend.com) or live (payment.intasend.com)
+   - Currency (default **KES**)
+4. Webhook URL: `http://<your-public-host>/?_route=callback/intasend`
+5. Placeholders (`ISPubKey_test_REPLACE_ME` / `ISSecretKey_test_REPLACE_ME`) fail fast until V supplies real keys.
+
+**Portal preference:** IntaSend when enabled+keys ready; else Paystack; else warning.
+
+**Waiting page test URLs**
+
+```text
+http://localhost:9980/?_route=portal/waiting/1
+http://localhost:9980/?_route=portal/pay-status&trx=1
+```
+
+### 4.3 Hotspot plans
 
 Create plans under **Admin → Services → Hotspot Plans**.  
 Local demo plans were seeded for testing (e.g. Demo Hotspot 1 Day / 7 Days on device `Dummy`, RADIUS-enabled). Replace or disable demos before production.
 
-### 4.3 Admin vs customer login
+### 4.4 Admin vs customer login
 
 - **Customers / hotspot:** forced to the package portal (no password form).
 - **Admin / staff:** still use `/admin` (or `/?_route=admin`) with normal credentials.

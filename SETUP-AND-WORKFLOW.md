@@ -1,6 +1,6 @@
 # HotLink / PNBrad + MikroTik — Workflow & Setup
 
-**Brand:** HotLink (PHPNuxBill inside PNBrad)  
+**Brand:** eNiGoLabs — *fast secure networks* (PHPNuxBill inside PNBrad / HotLink)  
 **Project path:** `/workspace/pnbrad`  
 **MikroTik login page:** `/workspace/pnbrad/mikrotik-hotspot/login.html`
 
@@ -13,8 +13,9 @@
 | Piece | Job |
 |-------|-----|
 | **MikroTik Hotspot** | Captures the client; serves `login.html`; later grants internet after PHPNuxBill asks it to (API / RADIUS) |
-| **PNBrad / PHPNuxBill** | Packages, phone signup, Paystack, MAC memory, status page |
-| **Paystack** | Collects payment; callback/verify activates the plan |
+| **PNBrad / PHPNuxBill** | Packages, phone signup, IntaSend/Paystack, MAC memory, waiting UI |
+| **IntaSend** (preferred) | M-Pesa STK / collection; webhook + status poll activate the plan |
+| **Paystack** (fallback) | Card/other checkout when IntaSend not ready |
 | **FreeRADIUS** (in PNBrad image) | Auth/accounting when plans are RADIUS-backed |
 
 ### End-to-end flows
@@ -34,8 +35,9 @@ Phone joins Wi‑Fi
          username = phone
          password = phone
          email    = {digits-only phone}@gmail.com
-    → Paystack checkout
-    → Payment verified
+    → IntaSend M-Pesa STK (preferred) or Paystack checkout
+    → Please-wait page polls /?_route=portal/pay-status&trx=…
+    → Payment COMPLETE / verified
     → Plan activated + MAC saved (tbl_portal_macs)
     → MikroTik connect_customer (if nux-mac + nux-ip present)
     → Browser → https://www.google.com
@@ -72,9 +74,12 @@ Portal → Reconnect → enter phone only
 |-----|---------|
 | `/?_route=portal` | Packages + Reconnect button |
 | `/?_route=portal/reconnect` | Phone-only reconnect |
+| `/?_route=portal/waiting/{trx}` | Please wait — confirming payment |
+| `/?_route=portal/pay-status&trx={id}` | JSON poll for waiting UI |
 | `/?_route=home` | Customer status (MAC auto-pass lands here) |
 | `/admin/` | Admin |
-| Admin → Payment Gateway → Paystack | Keys + webhook URL |
+| Admin → Payment Gateway → IntaSend | Publishable/secret keys, challenge, mode, KES |
+| Admin → Payment Gateway → Paystack | Fallback keys + webhook URL |
 
 ### Data the MikroTik page must send
 
@@ -96,7 +101,7 @@ Portal → Reconnect → enter phone only
 - Docker + Compose
 - Host ports free: **9980** (web), **1812–1813/udp** (RADIUS), optional **9306** (MySQL), **922** (SSH into container)
 - A URL/IP the MikroTik (and phones) can reach for the portal — **not** only `localhost` if the router is elsewhere
-- Paystack test or live keys
+- IntaSend test/live keys (preferred) and/or Paystack keys (fallback)
 
 ### B2. Start the stack
 
@@ -112,7 +117,20 @@ Secrets for this lab box: `/workspace/pnbrad/CREDENTIALS.md` (do not commit).
 ### B3. First admin login
 
 1. Log in with the image’s default admin (check PNBrad / PHPNuxBill docs for first-boot credentials; change password immediately).
-2. Set company name, currency, timezone, optional `country_code_phone` (Settings) for local phone formatting.
+2. Set company name to **eNiGoLabs**, currency, timezone, and `country_code_phone` (e.g. `254` for Kenya M-Pesa) under Settings.
+
+### B3b. IntaSend keys (from V)
+
+1. **Admin → Payment Gateway** — enable **intasend** (optionally keep **paystack**).
+2. **Admin → Payment Gateway → IntaSend** — paste:
+   - Publishable key `ISPubKey_test_…` / `ISPubKey_live_…`
+   - Secret key `ISSecretKey_…`
+   - Webhook challenge (must match IntaSend Dashboard → Webhooks)
+   - Mode test/live, currency **KES** (default)
+3. Webhook URL: `http://<public-host>/?_route=callback/intasend`
+4. Until real keys replace placeholders, portal buy shows a clear warning (no hang).
+
+**Preference rule:** IntaSend when enabled+configured; otherwise Paystack; otherwise error message.
 
 ### B4. Add the MikroTik as a router
 
