@@ -258,6 +258,15 @@ Without this, phones never load HotLink or Paystack while still captive.
 
 ---
 
+
+
+## Agent + router assignment
+
+1. Admin UI: `http://localhost:9980/?_route=settings/users` (or **Settings → Administrators**).
+2. Add/Edit user → **User Type = Agent** → tick **Routers** → Save.
+3. Sales users under that Agent inherit the parent Agent’s router scope via `tbl_users.root`.
+4. Scoping rule: customers visible only if `tbl_user_recharges.routers` ∈ assigned router names; no-recharge customers hidden from Agent/Sales.
+
 ## Part E — Troubleshooting
 
 | Symptom | Likely cause |

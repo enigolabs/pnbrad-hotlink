@@ -14,7 +14,15 @@ $ui->assign('_admin', $admin);
 
 require_once $DEVICE_PATH . DIRECTORY_SEPARATOR . "MikrotikHotspot.php";
 
-if (!in_array($admin['user_type'], ['SuperAdmin', 'Admin'])) {
+$__router_agent_readonly = false;
+if (in_array($admin['user_type'], ['Agent', 'Sales'])) {
+    AgentScope::ensureTable();
+    $__router_agent_readonly = true;
+    // Agents/Sales: list only
+    if (!empty($action) && $action !== 'list') {
+        _alert(Lang::T('You do not have permission to access this page'), 'danger', "routers");
+    }
+} elseif (!in_array($admin['user_type'], ['SuperAdmin', 'Admin'])) {
     _alert(Lang::T('You do not have permission to access this page'), 'danger', "dashboard");
 }
 
@@ -212,8 +220,10 @@ switch ($action) {
         if ($name != '') {
             $query->where_like('name', '%' . $name . '%');
         }
+        AgentScope::filterRoutersQuery($query, $admin);
         $d = Paginator::findMany($query, ['name' => $name]);
         $ui->assign('d', $d);
+        $ui->assign('agent_readonly', $__router_agent_readonly);
         run_hook('view_list_routers'); #HOOK
         $ui->display('routers.tpl');
         break;

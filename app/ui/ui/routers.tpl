@@ -5,10 +5,12 @@
     <div class="col-sm-12">
         <div class="panel panel-hovered mb20 panel-primary">
             <div class="panel-heading">{Lang::T('Routers')}
+                {if !$agent_readonly}
                 <div class="btn-group pull-right">
                     <a class="btn btn-primary btn-xs" title="save" href="{$_url}routers/maps">
                         <span class="glyphicon glyphicon-map-marker"></span></a>
                 </div>
+                {/if}
             </div>
             <div class="panel-body">
                 <div class="md-whiteframe-z1 mb20 text-center" style="padding: 15px">
@@ -27,10 +29,12 @@
                             </div>
                         </form>
                     </div>
+                    {if !$agent_readonly}
                     <div class="col-md-4">
                         <a href="{$_url}routers/add" class="btn btn-primary btn-block"><i class="ion ion-android-add">
                             </i> {Lang::T('New Router')}</a>
                     </div>&nbsp;
+                    {/if}
                 </div>
                 <div class="table-responsive">
                     <table class="table table-bordered table-striped table-condensed">
@@ -82,11 +86,15 @@
                                     {/if}
                                     <td>{if $ds['enabled'] == 1}{Lang::T('Enabled')}{else}{Lang::T('Disabled')}{/if}</td>
                                     <td>
+                                        {if !$agent_readonly}
                                         <a href="{$_url}routers/edit/{$ds['id']}"
                                             class="btn btn-info btn-xs">{Lang::T('Edit')}</a>
                                         <a href="{$_url}routers/delete/{$ds['id']}" id="{$ds['id']}"
                                             onclick="return ask(this, '{Lang::T('Delete')}?')"
                                             class="btn btn-danger btn-xs"><i class="glyphicon glyphicon-trash"></i></a>
+                                        {else}
+                                        <span class="text-muted">—</span>
+                                        {/if}
                                     </td>
                                     <td>{$ds['id']}</td>
                                 </tr>

@@ -11,6 +11,7 @@ $ui->assign('_system_menu', 'customers');
 
 $action = $routes['1'];
 $ui->assign('_admin', $admin);
+AgentScope::ensureTable();
 
 if (empty($action)) {
     $action = 'list';
@@ -166,6 +167,7 @@ switch ($action) {
         }
         $id_customer = $routes['2'];
         $plan_id = $routes['3'];
+        AgentScope::assertCustomerAccess($admin, $id_customer);
         $csrf_token = _req('token');
         if (!Csrf::check($csrf_token)) {
             r2(U . 'customers/view/' . $id_customer, 'e', Lang::T('Invalid or Expired CSRF Token') . ".");
@@ -325,6 +327,7 @@ switch ($action) {
             $customer = ORM::for_table('tbl_customers')->find_one($id);
         }
         if ($customer) {
+            AgentScope::assertCustomerAccess($admin, $customer['id']);
             // Fetch the Customers Attributes values from the tbl_customer_custom_fields table
             $customFields = ORM::for_table('tbl_customers_fields')
                 ->where('customer_id', $customer['id'])
@@ -844,6 +847,7 @@ switch ($action) {
             $query = ORM::for_table('tbl_customers');
             $query->where("status", $filter);
         }
+        AgentScope::filterCustomersQuery($query, $admin);
         if ($order == 'lastname') {
             $query->order_by_expr("SUBSTR(fullname, INSTR(fullname, ' ')) $orderby");
         } else {

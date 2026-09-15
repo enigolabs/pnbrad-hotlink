@@ -51,3 +51,16 @@ services:
       - ./app/system/controllers/order.php:/data/html/system/controllers/order.php:ro
       - ./app/system/autoload/PortalMac.php:/data/html/system/autoload/PortalMac.php:ro
       - ./app/index.php:/data/html/index.php:ro
+      # Agent ↔ router scoping
+      - ./app/system/autoload/AgentScope.php:/data/html/system/autoload/AgentScope.php:ro
+      - ./app/system/controllers/settings.php:/data/html/system/controllers/settings.php:ro
+      - ./app/system/controllers/customers.php:/data/html/system/controllers/customers.php:ro
+      - ./app/system/controllers/dashboard.php:/data/html/system/controllers/dashboard.php:ro
+      - ./app/system/controllers/routers.php:/data/html/system/controllers/routers.php:ro
+      - ./app/system/controllers/autoload.php:/data/html/system/controllers/autoload.php:ro
+      - ./app/system/controllers/plan.php:/data/html/system/controllers/plan.php:ro
+      - ./app/system/controllers/search_user.php:/data/html/system/controllers/search_user.php:ro
+      - ./app/ui/ui/admin-add.tpl:/data/html/ui/ui/admin-add.tpl:ro
+      - ./app/ui/ui/admin-edit.tpl:/data/html/ui/ui/admin-edit.tpl:ro
+      - ./app/ui/ui/routers.tpl:/data/html/ui/ui/routers.tpl:ro
+      - ./app/ui/ui/sections/header.tpl:/data/html/ui/ui/sections/header.tpl:ro

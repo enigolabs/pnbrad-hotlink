@@ -1,5 +1,45 @@
 # pnbrad local CHANGELOG — Paystack + Hotspot captive portal
 
+## 2026-09-14 — Agent accounts scoped to routers
+
+### Behavior
+- SuperAdmin/Admin can multi-select **routers** when creating/editing an **Agent** user.
+- Agents (and Sales under that Agent via `root`) only see:
+  - Customers with at least one `tbl_user_recharges.routers` matching an assigned router **name**
+  - Those routers in list/pickers (Agents: read-only router list)
+- Customers with **no recharge yet** are hidden from Agents/Sales.
+- SuperAdmin/Admin unchanged (see all).
+
+### Schema — `tbl_agent_routers` (auto-created)
+```sql
+CREATE TABLE IF NOT EXISTS tbl_agent_routers (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  user_id INT UNSIGNED NOT NULL,
+  router_id INT UNSIGNED NOT NULL,
+  UNIQUE KEY uq_agent_router (user_id, router_id),
+  KEY idx_router (router_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+```
+
+### Admin UI path
+Settings → Administrators → Add User / Edit → User Type = Agent → Routers checklist → Save.
+
+### Files
+| Path | Why |
+|------|-----|
+| `app/system/autoload/AgentScope.php` | Junction table ensure + scope helpers |
+| `app/system/controllers/settings.php` | Save/load agent↔router mappings |
+| `app/ui/ui/admin-add.tpl` / `admin-edit.tpl` | Router multi-select for Agent |
+| `app/system/controllers/customers.php` | Scoped list + view/recharge 403 |
+| `app/system/controllers/dashboard.php` | Scoped widgets |
+| `app/system/controllers/routers.php` + `routers.tpl` | Agent read-only assigned routers |
+| `app/system/controllers/autoload.php` | Scoped server + customer_select2 |
+| `app/system/controllers/plan.php` / `search_user.php` | Scoped pickers/search |
+| `app/ui/ui/sections/header.tpl` | Routers menu for Agent/Sales |
+| `docker-compose.yml` | Bind-mounts for above |
+
+---
+
 Date: 2026-09-13
 
 ## Source extract

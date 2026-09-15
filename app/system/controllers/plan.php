@@ -73,7 +73,11 @@ switch ($action) {
         }
         $ui->assign('xfooter', $select2_customer);
         if (isset($routes['2']) && !empty($routes['2'])) {
-            $ui->assign('cust', ORM::for_table('tbl_customers')->find_one($routes['2']));
+            $custPre = ORM::for_table('tbl_customers')->find_one($routes['2']);
+            if ($custPre) {
+                AgentScope::assertCustomerAccess($admin, $custPre['id'], 'plan/recharge');
+            }
+            $ui->assign('cust', $custPre);
         }
         $usings = explode(',', $config['payment_usings']);
         $usings = array_filter(array_unique($usings));
@@ -90,6 +94,9 @@ switch ($action) {
             _alert(Lang::T('You do not have permission to access this page'), 'danger', "dashboard");
         }
         $id_customer = _post('id_customer');
+        if (!empty($id_customer)) {
+            AgentScope::assertCustomerAccess($admin, $id_customer, 'plan/recharge');
+        }
         $server = _post('server');
         $planId = _post('plan');
         $using = _post('using');
@@ -169,6 +176,9 @@ switch ($action) {
             _alert(Lang::T('You do not have permission to access this page'), 'danger', "dashboard");
         }
         $id_customer = _post('id_customer');
+        if (!empty($id_customer)) {
+            AgentScope::assertCustomerAccess($admin, $id_customer, 'plan/recharge');
+        }
         $server = _post('server');
         $planId = _post('plan');
         $using = _post('using');
@@ -522,7 +532,9 @@ switch ($action) {
         $ui->assign('c', $c);
         $p = ORM::for_table('tbl_plans')->where('enabled', '1')->find_many();
         $ui->assign('p', $p);
-        $r = ORM::for_table('tbl_routers')->where('enabled', '1')->find_many();
+        $rq = ORM::for_table('tbl_routers')->where('enabled', '1');
+        AgentScope::filterRoutersQuery($rq, $admin);
+        $r = $rq->find_many();
         $ui->assign('r', $r);
         run_hook('view_add_voucher'); #HOOK
         $ui->display('voucher-add.tpl');

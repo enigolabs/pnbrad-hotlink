@@ -280,6 +280,22 @@ Behavior:
 
 ---
 
+
+
+## Agent router scope
+
+SuperAdmin/Admin can limit each **Agent** to specific MikroTik routers.
+
+1. Log in as SuperAdmin/Admin → **Settings → Administrators** (`/?_route=settings/users`).
+2. **Add User** or edit an existing user.
+3. Set **User Type** = **Agent**.
+4. Check one or more **Routers** in the checklist (enabled routers from Network → Routers).
+5. Save.
+
+**Customer visibility rule:** an Agent (or Sales under that Agent via `root`) only sees customers who have at least one row in `tbl_user_recharges` whose `routers` value equals an assigned router **name**. Customers with no recharge yet are not shown. SuperAdmin/Admin still see everyone.
+
+**Routers:** Agents get a read-only **Routers** menu listing only their assigned routers (no add/edit/delete).
+
 ## 9. Related links
 
 - Docker Hub: https://hub.docker.com/r/agstr/pnb  

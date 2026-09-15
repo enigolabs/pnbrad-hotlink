@@ -8,6 +8,10 @@
 _admin();
 $ui->assign('_title', Lang::T('Dashboard'));
 $ui->assign('_admin', $admin);
+AgentScope::ensureTable();
+$_agent_scoped = AgentScope::isScoped($admin);
+$_agent_router_names = AgentScope::routerNames($admin); // null = unrestricted
+$_agent_customer_ids = AgentScope::customerIds($admin); // null = unrestricted
 
 if (isset($_GET['refresh'])) {
     $files = scandir($CACHE_PATH);
@@ -34,46 +38,57 @@ if (date("d") >= $reset_day) {
 $current_date = date('Y-m-d');
 $month_n = date('n');
 
-$iday = ORM::for_table('tbl_transactions')
+$iday_q = ORM::for_table('tbl_transactions')
     ->where('recharged_on', $current_date)
     ->where_not_equal('method', 'Customer - Balance')
-    ->where_not_equal('method', 'Recharge Balance - Administrator')
-    ->sum('price');
+    ->where_not_equal('method', 'Recharge Balance - Administrator');
+AgentScope::filterByRouterNames($iday_q, $admin);
+$iday = $iday_q->sum('price');
 
 if ($iday == '') {
     $iday = '0.00';
 }
 $ui->assign('iday', $iday);
 
-$imonth = ORM::for_table('tbl_transactions')
+$imonth_q = ORM::for_table('tbl_transactions')
     ->where_not_equal('method', 'Customer - Balance')
     ->where_not_equal('method', 'Recharge Balance - Administrator')
     ->where_gte('recharged_on', $start_date)
-    ->where_lte('recharged_on', $current_date)->sum('price');
+    ->where_lte('recharged_on', $current_date);
+AgentScope::filterByRouterNames($imonth_q, $admin);
+$imonth = $imonth_q->sum('price');
 if ($imonth == '') {
     $imonth = '0.00';
 }
 $ui->assign('imonth', $imonth);
 
 if ($config['enable_balance'] == 'yes'){
-    $cb = ORM::for_table('tbl_customers')->whereGte('balance', 0)->sum('balance');
+    $cb_q = ORM::for_table('tbl_customers')->whereGte('balance', 0);
+    AgentScope::filterCustomersQuery($cb_q, $admin);
+    $cb = $cb_q->sum('balance');
     $ui->assign('cb', $cb);
 }
 
-$u_act = ORM::for_table('tbl_user_recharges')->where('status', 'on')->count();
+$u_act_q = ORM::for_table('tbl_user_recharges')->where('status', 'on');
+AgentScope::filterByRouterNames($u_act_q, $admin);
+$u_act = $u_act_q->count();
 if (empty($u_act)) {
     $u_act = '0';
 }
 $ui->assign('u_act', $u_act);
 
-$u_all = ORM::for_table('tbl_user_recharges')->count();
+$u_all_q = ORM::for_table('tbl_user_recharges');
+AgentScope::filterByRouterNames($u_all_q, $admin);
+$u_all = $u_all_q->count();
 if (empty($u_all)) {
     $u_all = '0';
 }
 $ui->assign('u_all', $u_all);
 
 
-$c_all = ORM::for_table('tbl_customers')->count();
+$c_all_q = ORM::for_table('tbl_customers');
+AgentScope::filterCustomersQuery($c_all_q, $admin);
+$c_all = $c_all_q->count();
 if (empty($c_all)) {
     $c_all = '0';
 }
@@ -84,12 +99,14 @@ if ($config['hide_uet'] != 'yes') {
     $query = ORM::for_table('tbl_user_recharges')
         ->where_lte('expiration', $current_date)
         ->order_by_desc('expiration');
+    AgentScope::filterByRouterNames($query, $admin);
     $expire = Paginator::findMany($query);
 
     // Get the total count of expired records for pagination
-    $totalCount = ORM::for_table('tbl_user_recharges')
-        ->where_lte('expiration', $current_date)
-        ->count();
+    $totalCount_q = ORM::for_table('tbl_user_recharges')
+        ->where_lte('expiration', $current_date);
+    AgentScope::filterByRouterNames($totalCount_q, $admin);
+    $totalCount = $totalCount_q->count();
 
     // Pass the total count and current page to the paginator
     $paginator['total_count'] = $totalCount;
@@ -140,17 +157,17 @@ if ($config['hide_vs'] != 'yes') {
 }
 
 $cacheMRfile = File::pathFixer('/monthlyRegistered.temp');
-//Cache for 1 hour
-if (file_exists($cacheMRfile) && time() - filemtime($cacheMRfile) < 3600) {
+//Cache for 1 hour (skip shared cache when Agent-scoped)
+if (!$_agent_scoped && file_exists($cacheMRfile) && time() - filemtime($cacheMRfile) < 3600) {
     $monthlyRegistered = json_decode(file_get_contents($cacheMRfile), true);
 } else {
     //Monthly Registered Customers
-    $result = ORM::for_table('tbl_customers')
+    $mr_q = ORM::for_table('tbl_customers')
         ->select_expr('MONTH(created_at)', 'month')
         ->select_expr('COUNT(*)', 'count')
-        ->where_raw('YEAR(created_at) = YEAR(NOW())')
-        ->group_by_expr('MONTH(created_at)')
-        ->find_many();
+        ->where_raw('YEAR(created_at) = YEAR(NOW())');
+    AgentScope::filterCustomersQuery($mr_q, $admin);
+    $result = $mr_q->group_by_expr('MONTH(created_at)')->find_many();
 
     $monthlyRegistered = [];
     foreach ($result as $row) {
@@ -159,23 +176,25 @@ if (file_exists($cacheMRfile) && time() - filemtime($cacheMRfile) < 3600) {
             'count' => $row->count
         ];
     }
-    file_put_contents($cacheMRfile, json_encode($monthlyRegistered));
+    if (!$_agent_scoped) {
+        file_put_contents($cacheMRfile, json_encode($monthlyRegistered));
+    }
 }
 
 $cacheMSfile = $CACHE_PATH . File::pathFixer('/monthlySales.temp');
-//Cache for 12 hours
-if (file_exists($cacheMSfile) && time() - filemtime($cacheMSfile) < 43200) {
+//Cache for 12 hours (skip shared cache when Agent-scoped)
+if (!$_agent_scoped && file_exists($cacheMSfile) && time() - filemtime($cacheMSfile) < 43200) {
     $monthlySales = json_decode(file_get_contents($cacheMSfile), true);
 } else {
     // Query to retrieve monthly data
-    $results = ORM::for_table('tbl_transactions')
+    $ms_q = ORM::for_table('tbl_transactions')
         ->select_expr('MONTH(recharged_on)', 'month')
         ->select_expr('SUM(price)', 'total')
         ->where_raw("YEAR(recharged_on) = YEAR(CURRENT_DATE())") // Filter by the current year
         ->where_not_equal('method', 'Customer - Balance')
-        ->where_not_equal('method', 'Recharge Balance - Administrator')
-        ->group_by_expr('MONTH(recharged_on)')
-        ->find_many();
+        ->where_not_equal('method', 'Recharge Balance - Administrator');
+    AgentScope::filterByRouterNames($ms_q, $admin);
+    $results = $ms_q->group_by_expr('MONTH(recharged_on)')->find_many();
 
     // Create an array to hold the monthly sales data
     $monthlySales = array();
@@ -206,11 +225,15 @@ if (file_exists($cacheMSfile) && time() - filemtime($cacheMSfile) < 43200) {
 
     // Reindex the array
     $monthlySales = array_values($monthlySales);
-    file_put_contents($cacheMSfile, json_encode($monthlySales));
+    if (!$_agent_scoped) {
+        file_put_contents($cacheMSfile, json_encode($monthlySales));
+    }
 }
 
 if ($config['router_check']) {
-    $routeroffs = ORM::for_table('tbl_routers')->selects(['id', 'name', 'last_seen'])->where('status', 'Offline')->where('enabled', '1')->order_by_desc('name')->find_array();
+    $routeroffs_q = ORM::for_table('tbl_routers')->selects(['id', 'name', 'last_seen'])->where('status', 'Offline')->where('enabled', '1')->order_by_desc('name');
+    AgentScope::filterRoutersQuery($routeroffs_q, $admin);
+    $routeroffs = $routeroffs_q->find_array();
     $ui->assign('routeroffs', $routeroffs);
 }
 

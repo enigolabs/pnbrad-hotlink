@@ -114,6 +114,23 @@
                                 </select>
                             </div>
                         </div>
+                        <div class="form-group" id="routerChooser" {if $d['user_type'] neq 'Agent'}style="display:none;"{/if}>
+                            <label class="col-md-3 control-label">{Lang::T('Routers')}</label>
+                            <div class="col-md-9">
+                                <div class="checkbox" style="max-height:180px;overflow:auto;border:1px solid #ddd;padding:8px;border-radius:4px;">
+                                    {foreach $routers as $router}
+                                        <label style="display:block;font-weight:normal;">
+                                            <input type="checkbox" name="router_ids[]" value="{$router['id']}"
+                                                {if in_array($router['id'], $agent_router_ids)}checked{/if}> {$router['name']}
+                                            {if $router['description']} <small class="text-muted">({$router['description']})</small>{/if}
+                                        </label>
+                                    {foreachelse}
+                                        <span class="text-muted">{Lang::T('No routers available')}</span>
+                                    {/foreach}
+                                </div>
+                                <span class="help-block">{Lang::T('Select which routers this Agent can access')}</span>
+                            </div>
+                        </div>
                     {/if}
                     <div class="form-group">
                         <label class="col-md-3 control-label">{Lang::T('Username')}</label>
@@ -154,6 +171,11 @@
             $('#agentChooser').removeClass('hidden');
         } else {
             $('#agentChooser').addClass('hidden');
+        }
+        if ($field.value == 'Agent') {
+            $('#routerChooser').show();
+        } else {
+            $('#routerChooser').hide();
         }
     }
 

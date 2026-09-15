@@ -1347,6 +1347,13 @@
                         </ul>
                     </li>
                     {$_MENU_AFTER_MESSAGE}
+                    {if in_array($_admin['user_type'],['Agent','Sales'])}
+                    <li class="{if $_system_menu eq 'network'}active{/if}">
+                        <a href="{$_url}routers">
+                            <i class="ion ion-network"></i> <span>{Lang::T('Routers')}</span>
+                        </a>
+                    </li>
+                    {/if}
                     {if in_array($_admin['user_type'],['SuperAdmin','Admin'])}
                     <li class="{if $_system_menu eq 'network'}active{/if} treeview">
                         <a href="#">

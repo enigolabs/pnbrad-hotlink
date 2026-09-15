@@ -537,6 +537,9 @@ switch ($action) {
         $ui->assign('csrf_token', $csrf_token);
         $ui->assign('_title', Lang::T('Add User'));
         $ui->assign('agents', ORM::for_table('tbl_users')->where('user_type', 'Agent')->find_many());
+        AgentScope::ensureTable();
+        $ui->assign('routers', AgentScope::enabledRouters());
+        $ui->assign('agent_router_ids', []);
         $ui->display('admin-add.tpl');
         break;
     case 'users-view':
@@ -619,6 +622,9 @@ switch ($action) {
             }
             $ui->assign('id', $id);
             $ui->assign('d', $d);
+            AgentScope::ensureTable();
+            $ui->assign('routers', AgentScope::enabledRouters());
+            $ui->assign('agent_router_ids', AgentScope::mappedRouterIdsForUser($d['id']));
             run_hook('view_edit_admin'); #HOOK
             $csrf_token = Csrf::generateAndStoreToken();
             $ui->assign('csrf_token', $csrf_token);
@@ -640,6 +646,7 @@ switch ($action) {
         $d = ORM::for_table('tbl_users')->find_one($id);
         if ($d) {
             run_hook('delete_admin'); #HOOK
+            AgentScope::saveMappings($d['id'], []);
             $d->delete();
             r2(U . 'settings/users', 's', Lang::T('User deleted Successfully'));
         } else {
@@ -704,6 +711,11 @@ switch ($action) {
                 $d->root = $root;
             }
             $d->save();
+
+            if ($user_type == 'Agent' && in_array($admin['user_type'], ['SuperAdmin', 'Admin'])) {
+                $router_ids = isset($_POST['router_ids']) ? $_POST['router_ids'] : [];
+                AgentScope::saveMappings($d->id(), $router_ids);
+            }
 
             if ($send_notif == 'wa') {
                 Message::sendWhatsapp(Lang::phoneFormat($phone), Lang::T('Hello, Your account has been created successfully.') . "\nUsername: $username\nPassword: $password\n\n" . $config['CompanyName']);
@@ -856,6 +868,17 @@ switch ($action) {
             }
 
             $d->save();
+
+            if (in_array($admin['user_type'], ['SuperAdmin', 'Admin']) && ($admin['id'] != $id)) {
+                $finalType = $d['user_type'];
+                if ($finalType == 'Agent') {
+                    $router_ids = isset($_POST['router_ids']) ? $_POST['router_ids'] : [];
+                    AgentScope::saveMappings($d['id'], $router_ids);
+                } else {
+                    // clear mappings if demoted away from Agent
+                    AgentScope::saveMappings($d['id'], []);
+                }
+            }
 
             _log('[' . $admin['username'] . ']: $username ' . Lang::T('User Updated Successfully'), $admin['user_type'], $admin['id']);
             r2(U . 'settings/users-view/' . $id, 's', 'User Updated Successfully');

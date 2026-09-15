@@ -41,7 +41,9 @@ switch ($action) {
         }
         die();
     case 'server':
-        $d = ORM::for_table('tbl_routers')->where('enabled', '1')->find_many();
+        $dq = ORM::for_table('tbl_routers')->where('enabled', '1');
+        AgentScope::filterRoutersQuery($dq, $admin);
+        $d = $dq->find_many();
         $ui->assign('d', $d);
 
         $ui->display('autoload-server.tpl');
@@ -75,7 +77,9 @@ switch ($action) {
     case 'plan':
         $server = _post('server');
         $jenis = _post('jenis');
-        if (in_array($admin['user_type'], array('SuperAdmin', 'Admin'))) {
+        if (AgentScope::isScoped($admin) && $server !== '' && $server !== 'radius' && !AgentScope::canAccessRouterName($admin, $server)) {
+            $d = [];
+        } elseif (in_array($admin['user_type'], array('SuperAdmin', 'Admin'))) {
             switch ($server) {
                 case 'radius':
                     $d = ORM::for_table('tbl_plans')->where('is_radius', 1)->where('type', $jenis)->find_many();
@@ -89,6 +93,11 @@ switch ($action) {
         } else {
             switch ($server) {
                 case 'radius':
+                    # Agents only get radius plans if they somehow have access; keep empty unless assigned "radius" name exists
+                    if (AgentScope::isScoped($admin) && !AgentScope::canAccessRouterName($admin, 'radius')) {
+                        $d = [];
+                        break;
+                    }
                     $d = ORM::for_table('tbl_plans')->where('is_radius', 1)->where('type', $jenis)->find_many();
                     break;
                 case '':
@@ -167,11 +176,14 @@ switch ($action) {
 
         $s = addslashes(_get('s'));
         if (empty($s)) {
-            $c = ORM::for_table('tbl_customers')->limit(30)->find_many();
+            $cq = ORM::for_table('tbl_customers')->limit(30);
         } else {
-            $c = ORM::for_table('tbl_customers')->where_raw("(`username` LIKE '%$s%' OR `fullname` LIKE '%$s%' OR `phonenumber` LIKE '%$s%' OR `email` LIKE '%$s%')")->limit(30)->find_many();
+            $cq = ORM::for_table('tbl_customers')->where_raw("(`username` LIKE '%$s%' OR `fullname` LIKE '%$s%' OR `phonenumber` LIKE '%$s%' OR `email` LIKE '%$s%')")->limit(30);
         }
+        AgentScope::filterCustomersQuery($cq, $admin);
+        $c = $cq->find_many();
         header('Content-Type: application/json');
+        $json = [];
         foreach ($c as $cust) {
             $json[] = [
                 'id' => $cust['id'],
